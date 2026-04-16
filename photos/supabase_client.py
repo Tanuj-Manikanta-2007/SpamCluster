@@ -1,6 +1,23 @@
+import os
+from pathlib import Path
+
 from supabase import create_client
 
-url = "https://zsjmzxahxmedeufrdecf.supabase.co"
-key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpzam16eGFoeG1lZGV1ZnJkZWNmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjIzOTE4NSwiZXhwIjoyMDkxODE1MTg1fQ.kVrZU8CeB3hPufv1gWghYZRLOFTlXQo4ONM00DcS1yM"
 
-supabase = create_client(url,key)
+
+try:
+    from dotenv import load_dotenv 
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except Exception:
+    pass
+
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+if not url or not key:
+    raise RuntimeError(
+        "Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in environment (or .env)."
+    )
+
+supabase = create_client(url, key)
