@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snap Cluster</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=5">
+</head>
+<body>
+  <div class="snap-glow"></div>
+
+  <div class="snap-navbar">
+    <a class="snap-logo" href="/">✨ Snap Cluster</a>
+    <input class="snap-search" placeholder="Search faces, events, rooms..." disabled>
+    <div class="snap-nav-actions"></div>
+  </div>
+
+  <main class="snap-main is-home">
+    <div class="snap-home-hero">
+      <div class="snap-home-icon">📷</div>
+      <h1 class="snap-home-title">Snap Cluster</h1>
+      <p class="snap-home-sub">Create a room, upload images, and share the link.</p>
+    </div>
+
+    <div class="snap-home-cards">
+      <div class="card">
+        <h2>Create Room</h2>
+        <input id="createName" type="text" placeholder="Room name (optional)" />
+        <button onclick="createRoom()">Create</button>
+      </div>
+
+      <div class="card">
+        <h2>Join Room</h2>
+        <input id="joinCode" type="text" placeholder="Enter room code" />
+        <button onclick="joinRoom()">Join</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="{% static 'js/app.js' %}?v=5"></script>
+</body>
+</html>

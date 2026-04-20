@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Room</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/style.css' %}?v=5">
+</head>
+<body>
+
+<div class="snap-glow"></div>
+
+<!-- NAVBAR -->
+<div class="snap-navbar">
+  <a class="snap-logo" href="/">✨ Snap Cluster <span class="snap-room">Room <span id="roomCodeDisplay"></span></span></a>
+  <input class="snap-search" placeholder="Search faces, events, rooms..." disabled>
+  <div class="snap-nav-actions">
+    <button class="snap-btn" onclick="triggerZipPicker()">Upload ZIP</button>
+    <button class="snap-btn snap-btn-primary" onclick="copyLink()">Copy Link</button>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="snap-sidebar">
+  <div class="snap-side-item is-active">All Photos</div>
+  <div class="snap-side-item">People</div>
+  <div class="snap-side-item">Favorites</div>
+  <div class="snap-side-sep"></div>
+  <div class="snap-side-meta">Selected: <span id="selectedCount">0</span></div>
+  <div class="snap-side-actions">
+    <button id="downloadSelectedBtn" class="snap-btn" onclick="downloadSelected()" disabled>Download</button>
+    <button id="deleteSelectedBtn" class="snap-btn snap-btn-danger" onclick="deleteSelected()" disabled>Delete</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main class="snap-main">
+  <div class="snap-gallery" id="gallery"></div>
+</main>
+
+<!-- Hidden inputs for uploads -->
+<input type="file" id="imagesInput" multiple accept="image/*" style="display:none" />
+<input type="file" id="zipInput" accept=".zip" style="display:none" />
+
+<!-- FLOAT UPLOAD -->
+<div class="snap-upload-fab" onclick="triggerImagePicker()">⬆ Upload</div>
+
+<script src="{% static 'js/app.js' %}?v=5"></script>
+<script>
+  // Initialize room page
+  document.addEventListener('DOMContentLoaded', () => {
+    initRoomPage();
+  });
+</script>
+</body>
+</html>
