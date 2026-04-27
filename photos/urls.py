@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import CreateRoom, DeleteImages, DeleteRoom, DownloadImagesZip, IndexPage, JoinRoom, RoomImages, RoomPage, UploadImages, UploadZip
+from .views import CreateRoom, DeleteImages, DeleteRoom, DownloadImagesZip, IndexPage, JoinRoom, RoomImages, RoomPage, UploadImages, UploadZip , ClusterFaces, SearchPerson
 urlpatterns = [
   path('', IndexPage.as_view()),
   path('room/', RoomPage.as_view()),
@@ -11,4 +11,6 @@ urlpatterns = [
   path('delete-images/', DeleteImages.as_view()),
   path('delete-room/', DeleteRoom.as_view()),
   path('download-images/', DownloadImagesZip.as_view()),
+  path('cluster/',ClusterFaces.as_view()),
+  path('search-person/', SearchPerson.as_view()),
 ]

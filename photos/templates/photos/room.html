@@ -47,11 +47,49 @@
   </section>
 
   <div class="snap-gallery" id="gallery"></div>
+
+  <!-- PEOPLE VIEW (clusters + search) -->
+  <section id="peopleView" class="snap-results" hidden>
+    <div class="snap-results-head">
+      <div class="snap-results-title">People</div>
+      <div class="snap-nav-actions">
+        <button class="snap-btn" onclick="clusterPeople()">Cluster People</button>
+        <button class="snap-btn" onclick="triggerSearchPicker()">Search Me</button>
+        <button id="peopleDownloadSelectedBtn" class="snap-btn" onclick="downloadSelected()" disabled>Download Selected</button>
+        <button id="peopleDeleteSelectedBtn" class="snap-btn snap-btn-danger" onclick="deleteSelected()" disabled>Delete Selected</button>
+      </div>
+    </div>
+
+    <div id="peopleMeta" class="snap-results-meta"></div>
+    <div id="peopleClusters"></div>
+
+    <div id="searchResults" class="snap-results" hidden>
+      <div class="snap-results-head">
+        <div class="snap-results-title">Search results</div>
+        <div class="snap-results-meta" id="searchResultsMeta"></div>
+      </div>
+      <div class="snap-results-grid" id="searchResultsGrid"></div>
+    </div>
+  </section>
+
+  <!-- FAVORITES VIEW (favourited people clusters) -->
+  <section id="favoritesView" class="snap-results" hidden>
+    <div class="snap-results-head">
+      <div class="snap-results-title">Favorites</div>
+      <div class="snap-nav-actions">
+        <button class="snap-btn" onclick="renderFavorites()">Refresh</button>
+      </div>
+    </div>
+
+    <div id="favoritesMeta" class="snap-results-meta"></div>
+    <div id="favoritesClusters"></div>
+  </section>
 </main>
 
 <!-- Hidden inputs for uploads -->
 <input type="file" id="imagesInput" multiple accept="image/*" style="display:none" />
 <input type="file" id="zipInput" accept=".zip" style="display:none" />
+<input type="file" id="searchInput" accept="image/*" style="display:none" />
 
 <!-- FLOAT UPLOAD -->
 <div class="snap-upload-fab" onclick="triggerImagePicker()">⬆ Upload</div>

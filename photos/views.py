@@ -16,8 +16,10 @@ from urllib.request import urlopen, Request
 from .models import Image, Room
 from .supabase_client import supabase
 from .utils import generate_room_code
-from .face_utils import represent_faces
+from .face_utils import represent_faces, extract_embeddings_and_meta_from_representations, get_best_face_embedding
+from .face_cluster import cluster_faces
 
+import numpy as np
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
 class IndexPage(TemplateView):
@@ -91,19 +93,7 @@ class UploadImages(APIView):
       except Exception:
         pass
 
-      embeddings = [
-        r.get("embedding")
-        for r in faces
-        if isinstance(r, dict) and r.get("embedding") is not None
-      ]
-      face_meta = [
-        {
-          "confidence": (r.get("confidence") if isinstance(r, dict) else None),
-          "facial_area": (r.get("facial_area") if isinstance(r, dict) else None),
-        }
-        for r in faces
-        if isinstance(r, dict)
-      ]
+      embeddings, face_meta = extract_embeddings_and_meta_from_representations(faces)
 
       img = Image.objects.create(
         room=room,
@@ -380,19 +370,7 @@ class UploadZip(APIView):
         except Exception:
           pass
 
-        embeddings = [
-          r.get("embedding")
-          for r in faces
-          if isinstance(r, dict) and r.get("embedding") is not None
-        ]
-        face_meta = [
-          {
-            "confidence": (r.get("confidence") if isinstance(r, dict) else None),
-            "facial_area": (r.get("facial_area") if isinstance(r, dict) else None),
-          }
-          for r in faces
-          if isinstance(r, dict)
-        ]
+        embeddings, face_meta = extract_embeddings_and_meta_from_representations(faces)
 
         img = Image.objects.create(
           room=room,
@@ -416,4 +394,188 @@ class UploadZip(APIView):
     }, status=201)    
 
 
+class ClusterFaces(APIView):
 
+  def get(self, request):
+    room_code = request.GET.get("room_code")
+
+    # Optional tuning knobs
+    try:
+      min_cluster_size = int(request.GET.get("min_cluster_size") or 2)
+    except Exception:
+      min_cluster_size = 2
+
+    try:
+      min_samples = request.GET.get("min_samples")
+      # Default to None (HDBSCAN uses min_cluster_size) for more conservative clustering.
+      min_samples = None if min_samples in (None, "", "null", "None") else int(min_samples)
+    except Exception:
+      min_samples = None
+
+    fallback_threshold = _safe_float(request.GET.get("fallback_threshold"), 0.62)
+
+    prune_threshold = _safe_float(request.GET.get("prune_threshold"), 0.60)
+
+    if not room_code:
+      return Response({"error": "room_code required"}, status=400)
+
+    images = Image.objects.filter(room__code=room_code)
+
+    all_embeddings = []
+    face_to_image = []
+
+    for img in images:
+      if not img.embeddings:
+        continue
+
+      try:
+        emb_list = json.loads(img.embeddings)
+      except Exception:
+        continue
+
+      if not isinstance(emb_list, list):
+        continue
+
+      for emb in emb_list:
+        all_embeddings.append(emb)
+        face_to_image.append({"id": img.id, "url": img.image_url})
+
+    if not all_embeddings:
+      return Response({"error": "No embeddings found"}, status=404)
+
+    labels = cluster_faces(
+      all_embeddings,
+      min_cluster_size=min_cluster_size,
+      min_samples=min_samples,
+      fallback_threshold=fallback_threshold,
+      prune_threshold=prune_threshold,
+    )
+
+    clustered_data = {}
+    for label, image_ref in zip(labels, face_to_image):
+      try:
+        label_int = int(label)
+      except Exception:
+        continue
+
+      if label_int == -1:
+        continue
+
+      # JSON object keys must be strings.
+      # Each face embedding maps back to its source image; de-dupe image ids within a cluster.
+      key = str(label_int)
+      clustered_data.setdefault(key, [])
+      if not any(x.get("id") == image_ref.get("id") for x in clustered_data[key]):
+        clustered_data[key].append({"id": image_ref.get("id"), "url": image_ref.get("url")})
+
+    return Response({"clusters": clustered_data})
+
+
+def _safe_float(value, default: float) -> float:
+  try:
+    if value is None:
+      return default
+    return float(value)
+  except Exception:
+    return default
+
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+  denom = (np.linalg.norm(a) * np.linalg.norm(b))
+  if denom == 0:
+    return 0.0
+  return float(np.dot(a, b) / denom)
+
+
+class SearchPerson(APIView):
+
+  def post(self, request):
+    room_code = request.data.get('room_code') or request.data.get('code')
+
+    file_field_candidates = ["image", "file", "query", "photo"]
+    qf = None
+    for field in file_field_candidates:
+      qf = request.FILES.get(field)
+      if qf:
+        break
+
+    if not room_code or not qf:
+      return Response(
+        {
+          "error": "Missing data",
+          "expected": {
+            "room_code": ["room_code", "code"],
+            "file": file_field_candidates,
+          },
+          "received": {
+            "data_keys": list(request.data.keys()),
+            "file_keys": list(request.FILES.keys()),
+          },
+        },
+        status=400,
+      )
+
+    try:
+      room = Room.objects.get(code=room_code)
+    except Room.DoesNotExist:
+      return Response({"error": "Room not found"}, status=404)
+
+    threshold = _safe_float(request.data.get("threshold"), 0.70)
+    # Clamp to sane range
+    if threshold < 0:
+      threshold = 0.0
+    if threshold > 1:
+      threshold = 1.0
+
+    # Build query embedding from uploaded image
+    ext = os.path.splitext(qf.name)[1] or ".jpg"
+    temp_path = f"temp_query_{uuid.uuid4().hex}{ext}"
+    qbytes = qf.read()
+    with open(temp_path, "wb") as f:
+      f.write(qbytes)
+
+    q_embedding = get_best_face_embedding(temp_path)
+    try:
+      os.remove(temp_path)
+    except Exception:
+      pass
+
+    if q_embedding is None:
+      return Response({"error": "No face found in query image"}, status=404)
+
+    try:
+      q = np.array(q_embedding, dtype=np.float32)
+    except Exception:
+      return Response({"error": "Invalid embedding from query image"}, status=500)
+
+    matches = []
+    images = Image.objects.filter(room=room)
+    for img in images:
+      if not img.embeddings:
+        continue
+
+      try:
+        emb_list = json.loads(img.embeddings)
+      except Exception:
+        continue
+
+      best = 0.0
+      for emb in emb_list if isinstance(emb_list, list) else []:
+        try:
+          v = np.array(emb, dtype=np.float32)
+          score = _cosine_similarity(q, v)
+          if score > best:
+            best = score
+        except Exception:
+          continue
+
+      if best >= threshold:
+        matches.append({"id": img.id, "url": img.image_url, "score": round(best, 4)})
+
+    matches.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return Response({
+      "room_code": room_code,
+      "threshold": threshold,
+      "count": len(matches),
+      "matches": matches,
+    })

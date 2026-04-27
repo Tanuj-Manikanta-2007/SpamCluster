@@ -602,11 +602,36 @@ button:hover {
 }
 
 .snap-result-card {
+    position: relative;
     width: 200px;
     border-radius: 16px;
     overflow: hidden;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.10);
+}
+
+.snap-person-head-left {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.snap-fav-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.snap-fav-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    accent-color: #6366f1;
 }
 
 .snap-result-card img {
@@ -620,6 +645,11 @@ button:hover {
     padding: 10px 12px;
     font-weight: 700;
     color: #e2e8f0;
+}
+
+.snap-result-card.is-selected {
+    outline: 2px solid rgba(99, 102, 241, 0.9);
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.15);
 }
 
 @media (max-width: 1000px) {

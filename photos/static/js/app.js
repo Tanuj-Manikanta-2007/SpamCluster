@@ -17,6 +17,48 @@ function getRoomCode() {
 
 const ROOMS_STORAGE_KEY = 'snap_rooms_v1';
 
+const FAVORITE_PEOPLE_KEY_PREFIX = 'snap_favorite_people_v1:';
+
+function favoritesStorageKey(roomCode) {
+  return `${FAVORITE_PEOPLE_KEY_PREFIX}${(roomCode || '').trim()}`;
+}
+
+function getFavoritePeople(roomCode) {
+  const code = (roomCode || '').trim();
+  if (!code) return new Set();
+  try {
+    const raw = localStorage.getItem(favoritesStorageKey(code));
+    const parsed = raw ? JSON.parse(raw) : [];
+    const labels = Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+    return new Set(labels);
+  } catch {
+    return new Set();
+  }
+}
+
+function setFavoritePeople(roomCode, favoritesSet) {
+  const code = (roomCode || '').trim();
+  if (!code) return;
+  try {
+    const arr = Array.from(favoritesSet || []).map((x) => String(x));
+    localStorage.setItem(favoritesStorageKey(code), JSON.stringify(arr));
+  } catch {
+    // ignore
+  }
+}
+
+function isPersonFavorite(roomCode, label) {
+  return getFavoritePeople(roomCode).has(String(label));
+}
+
+function setPersonFavorite(roomCode, label, isFav) {
+  const favorites = getFavoritePeople(roomCode);
+  const key = String(label);
+  if (isFav) favorites.add(key);
+  else favorites.delete(key);
+  setFavoritePeople(roomCode, favorites);
+}
+
 function getStoredRooms() {
   try {
     const raw = localStorage.getItem(ROOMS_STORAGE_KEY);
@@ -132,6 +174,18 @@ function initRoomPage() {
     });
   }
 
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.dataset.bound = '1';
+    searchInput.addEventListener('change', async () => {
+      if (searchInput.files && searchInput.files.length) {
+        await searchMeInRoom();
+      }
+    });
+  }
+
+  bindSidebarTabs();
+
   if (code) {
     loadImages();
   } else {
@@ -155,6 +209,345 @@ function triggerZipPicker() {
   if (input) input.click();
 }
 
+function triggerSearchPicker() {
+  const input = document.getElementById('searchInput');
+  if (input) input.click();
+}
+
+function bindSidebarTabs() {
+  const items = Array.from(document.querySelectorAll('.snap-side-item'));
+  if (!items.length) return;
+  if (items.some((x) => x.dataset.bound === '1')) return;
+
+  for (const item of items) {
+    item.dataset.bound = '1';
+    item.addEventListener('click', () => {
+      for (const it of items) it.classList.remove('is-active');
+      item.classList.add('is-active');
+      const label = (item.textContent || '').trim().toLowerCase();
+      if (label === 'people') {
+        setView('people');
+      } else if (label === 'favorites' || label === 'favourites') {
+        setView('favorites');
+      } else {
+        // Default: All Photos
+        setView('photos');
+      }
+    });
+  }
+}
+
+function setView(view) {
+  const gallery = document.getElementById('gallery');
+  const peopleView = document.getElementById('peopleView');
+  const favoritesView = document.getElementById('favoritesView');
+  const uploadFab = document.querySelector('.snap-upload-fab');
+  const uploadResults = document.getElementById('uploadResults');
+
+  if (view === 'people') {
+    if (gallery) gallery.style.display = 'none';
+    if (peopleView) peopleView.hidden = false;
+    if (favoritesView) favoritesView.hidden = true;
+    if (uploadFab) uploadFab.style.display = 'none';
+    if (uploadResults) uploadResults.hidden = true;
+    return;
+  }
+
+  if (view === 'favorites') {
+    if (gallery) gallery.style.display = 'none';
+    if (peopleView) peopleView.hidden = true;
+    if (favoritesView) favoritesView.hidden = false;
+    if (uploadFab) uploadFab.style.display = 'none';
+    if (uploadResults) uploadResults.hidden = true;
+    renderFavorites();
+    return;
+  }
+
+  // photos
+  if (gallery) gallery.style.display = '';
+  if (peopleView) peopleView.hidden = true;
+  if (favoritesView) favoritesView.hidden = true;
+  if (uploadFab) uploadFab.style.display = '';
+  // uploadResults visibility is managed by renderUploadResults
+}
+
+async function fetchClusters(roomCode) {
+  const code = (roomCode || '').trim();
+  if (!code) throw new Error('Missing room code');
+
+  const res = await fetch(`/cluster/?room_code=${encodeURIComponent(code)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Cluster failed (${res.status})`);
+  }
+
+  const clusters = data && data.clusters && typeof data.clusters === 'object' ? data.clusters : {};
+  const labels = Object.keys(clusters).sort((a, b) => Number(a) - Number(b));
+  return { clusters, labels };
+}
+
+function renderPeopleClusters(containerEl, roomCode, clusters, labels, options) {
+  if (!containerEl) return;
+  const opts = options || {};
+
+  containerEl.innerHTML = '';
+  for (const label of labels) {
+    const items = Array.isArray(clusters[label]) ? clusters[label] : [];
+    if (!items.length) continue;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'snap-results';
+
+    const head = document.createElement('div');
+    head.className = 'snap-results-head';
+
+    const left = document.createElement('div');
+    left.className = 'snap-person-head-left';
+
+    const title = document.createElement('div');
+    title.className = 'snap-results-title';
+    const personNumber = Number(label) + 1;
+    title.textContent = `Person ${personNumber}`;
+    left.appendChild(title);
+
+    if (opts.showFavoriteToggle) {
+      const favWrap = document.createElement('label');
+      favWrap.className = 'snap-fav-toggle';
+
+      const fav = document.createElement('input');
+      fav.type = 'checkbox';
+      fav.checked = isPersonFavorite(roomCode, label);
+      fav.ariaLabel = `Favourite person ${personNumber}`;
+
+      fav.addEventListener('click', (e) => e.stopPropagation());
+      fav.addEventListener('change', () => {
+        setPersonFavorite(roomCode, label, fav.checked);
+        if (typeof opts.onFavoriteChanged === 'function') {
+          opts.onFavoriteChanged();
+        }
+      });
+
+      const favText = document.createElement('span');
+      favText.textContent = 'Favourite';
+
+      favWrap.appendChild(fav);
+      favWrap.appendChild(favText);
+      left.appendChild(favWrap);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'snap-results-meta';
+    meta.textContent = `${items.length} photo(s)`;
+
+    head.appendChild(left);
+    head.appendChild(meta);
+
+    const grid = document.createElement('div');
+    grid.className = 'snap-results-grid';
+
+    for (const item of items) {
+      if (!item || !item.url) continue;
+      const id = item.id;
+
+      const card = document.createElement('div');
+      card.className = 'snap-result-card';
+
+      const checkboxWrap = document.createElement('div');
+      checkboxWrap.className = 'snap-check';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = selectedImageIds.has(id);
+      checkbox.ariaLabel = 'Select image';
+
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSelected(id);
+        card.classList.toggle('is-selected', selectedImageIds.has(id));
+      });
+
+      checkboxWrap.appendChild(checkbox);
+
+      const img = document.createElement('img');
+      img.src = item.url;
+      img.alt = 'person';
+      img.loading = 'lazy';
+
+      card.addEventListener('click', () => {
+        toggleSelected(id);
+        checkbox.checked = selectedImageIds.has(id);
+        card.classList.toggle('is-selected', selectedImageIds.has(id));
+      });
+
+      if (selectedImageIds.has(id)) {
+        card.classList.add('is-selected');
+      }
+
+      card.appendChild(checkboxWrap);
+      card.appendChild(img);
+      grid.appendChild(card);
+    }
+
+    wrap.appendChild(head);
+    wrap.appendChild(grid);
+    containerEl.appendChild(wrap);
+  }
+}
+
+async function renderFavorites() {
+  const code = getRoomCode();
+  if (!code) return;
+
+  const metaEl = document.getElementById('favoritesMeta');
+  const clustersEl = document.getElementById('favoritesClusters');
+  if (metaEl) metaEl.textContent = 'Loading...';
+  if (clustersEl) clustersEl.innerHTML = '';
+
+  const favorites = getFavoritePeople(code);
+  if (!favorites.size) {
+    if (metaEl) metaEl.textContent = 'No favorites yet. Mark people as Favourite in People tab.';
+    return;
+  }
+
+  try {
+    const { clusters, labels } = await fetchClusters(code);
+    const favLabels = labels.filter((l) => favorites.has(String(l)));
+
+    if (metaEl) {
+      metaEl.textContent = favLabels.length
+        ? `${favLabels.length} favourite person(s)`
+        : 'No favourite people found in current clusters.';
+    }
+
+    renderPeopleClusters(clustersEl, code, clusters, favLabels, {
+      showFavoriteToggle: true,
+      onFavoriteChanged: () => renderFavorites(),
+    });
+  } catch (err) {
+    if (metaEl) metaEl.textContent = '';
+    alert(err && err.message ? err.message : 'Failed to load favourites');
+  }
+}
+
+async function clusterPeople() {
+  const code = getRoomCode();
+  if (!code) {
+    alert('Missing room code');
+    return;
+  }
+
+  const metaEl = document.getElementById('peopleMeta');
+  const clustersEl = document.getElementById('peopleClusters');
+  if (metaEl) metaEl.textContent = 'Clustering...';
+  if (clustersEl) clustersEl.innerHTML = '';
+
+  try {
+    const { clusters, labels } = await fetchClusters(code);
+    if (metaEl) metaEl.textContent = labels.length ? `${labels.length} person cluster(s)` : 'No clusters found';
+    renderPeopleClusters(clustersEl, code, clusters, labels, {
+      showFavoriteToggle: true,
+    });
+  } catch (err) {
+    if (metaEl) metaEl.textContent = '';
+    alert(err && err.message ? err.message : 'Cluster failed');
+  }
+}
+
+async function searchMeInRoom() {
+  const code = getRoomCode();
+  if (!code) {
+    alert('Missing room code');
+    return;
+  }
+
+  const input = document.getElementById('searchInput');
+  const file = input && input.files && input.files[0] ? input.files[0] : null;
+  if (!file) {
+    alert('Select one image');
+    return;
+  }
+
+  const resWrap = document.getElementById('searchResults');
+  const metaEl = document.getElementById('searchResultsMeta');
+  const grid = document.getElementById('searchResultsGrid');
+  if (resWrap) resWrap.hidden = false;
+  if (metaEl) metaEl.textContent = 'Searching...';
+  if (grid) grid.innerHTML = '';
+
+  const fd = new FormData();
+  fd.append('room_code', code);
+  fd.append('image', file);
+
+  const res = await fetch('/search-person/', {
+    method: 'POST',
+    headers: {
+      ...csrfHeaders(),
+    },
+    body: fd,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (metaEl) metaEl.textContent = '';
+    alert(data.error || `Search failed (${res.status})`);
+    return;
+  }
+
+  const matches = Array.isArray(data.matches) ? data.matches : [];
+  if (metaEl) metaEl.textContent = `${matches.length} match(es) • threshold ${data.threshold}`;
+  if (!grid) return;
+
+  grid.innerHTML = '';
+  for (const m of matches) {
+    if (!m || !m.url) continue;
+
+    const card = document.createElement('div');
+    card.className = 'snap-result-card';
+
+    const checkboxWrap = document.createElement('div');
+    checkboxWrap.className = 'snap-check';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selectedImageIds.has(m.id);
+    checkbox.ariaLabel = 'Select image';
+
+    checkbox.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSelected(m.id);
+      card.classList.toggle('is-selected', selectedImageIds.has(m.id));
+    });
+
+    checkboxWrap.appendChild(checkbox);
+
+    const img = document.createElement('img');
+    img.src = m.url;
+    img.alt = 'match';
+    img.loading = 'lazy';
+
+    const meta = document.createElement('div');
+    meta.className = 'snap-result-meta';
+    meta.textContent = `Score: ${m.score}`;
+
+    card.addEventListener('click', () => {
+      toggleSelected(m.id);
+      card.classList.toggle('is-selected', selectedImageIds.has(m.id));
+      checkbox.checked = selectedImageIds.has(m.id);
+    });
+
+    if (selectedImageIds.has(m.id)) {
+      card.classList.add('is-selected');
+    }
+
+    card.appendChild(checkboxWrap);
+    card.appendChild(img);
+    card.appendChild(meta);
+    grid.appendChild(card);
+  }
+
+  if (input) input.value = '';
+}
+
 let selectedImageIds = new Set();
 
 function getSelectedIds() {
@@ -165,11 +558,15 @@ function setSelectionCount() {
   const countEl = document.getElementById('selectedCount');
   const deleteBtn = document.getElementById('deleteSelectedBtn');
   const downloadBtn = document.getElementById('downloadSelectedBtn');
+  const peopleDownloadBtn = document.getElementById('peopleDownloadSelectedBtn');
+  const peopleDeleteBtn = document.getElementById('peopleDeleteSelectedBtn');
   const n = selectedImageIds.size;
 
   if (countEl) countEl.textContent = String(n);
   if (deleteBtn) deleteBtn.disabled = n === 0;
   if (downloadBtn) downloadBtn.disabled = n === 0;
+  if (peopleDownloadBtn) peopleDownloadBtn.disabled = n === 0;
+  if (peopleDeleteBtn) peopleDeleteBtn.disabled = n === 0;
 }
 
 function toggleSelected(id) {
@@ -426,6 +823,12 @@ async function deleteSelected() {
 
   clearSelection();
   await loadImages();
+
+  // If the user is currently on the People view, refresh clusters.
+  const peopleView = document.getElementById('peopleView');
+  if (peopleView && peopleView.hidden === false) {
+    await clusterPeople();
+  }
 }
 
 async function downloadSelected() {
